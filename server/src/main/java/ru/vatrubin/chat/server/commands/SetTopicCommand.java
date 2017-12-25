@@ -4,8 +4,8 @@ import ru.vatrubin.chat.server.ChatServer;
 import ru.vatrubin.chat.server.ChatSession;
 
 public class SetTopicCommand extends ChatCommand {
-    public SetTopicCommand(String description, ChatServer server) {
-        super(description, server);
+    public SetTopicCommand(ChatServer server) {
+        super("Set topic of this chat", server);
     }
 
     @Override

@@ -1,79 +1,85 @@
 package ru.vatrubin.chat.server;
 
-import ru.vatrubin.chat.server.commands.*;
+import ru.vatrubin.chat.server.commands.ChangeLoginCommand;
+import ru.vatrubin.chat.server.commands.ChatCommand;
+import ru.vatrubin.chat.server.commands.ExitCommand;
+import ru.vatrubin.chat.server.commands.HelpCommand;
+import ru.vatrubin.chat.server.commands.SetTopicCommand;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public abstract class ChatServer {
     private final CopyOnWriteArrayList<ChatSession> sessions;
-    private final ConcurrentSkipListSet<String> logins;
-    private final SimpleDateFormat dateFormat;
+    private final Set<String> logins;
+    private final ReadWriteLock loginsLock = new ReentrantReadWriteLock();
+    private final DateTimeFormatter dateTimeFormatter;
     private final String msgFormat;
     private final String sysMsgFormat;
-    private final CircularArrayList<String> history;
+    private final CircularHistory history;
     private final Map<String, ChatCommand> chatCommandMap;
 
     private String topic = "";
-    private Lock topicLock = new ReentrantLock();
+    private ReadWriteLock topicLock = new ReentrantReadWriteLock();
 
     public ChatServer() {
         sessions = new CopyOnWriteArrayList<>();
-        logins = new ConcurrentSkipListSet<>();
-        dateFormat = new SimpleDateFormat("dd.MM HH:mm:ss");
+        logins = new HashSet<>();
+        dateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM HH:mm:ss");
         msgFormat = "%s %s: %s";
         sysMsgFormat = "%s: %s";
-        history = new CircularArrayList<>(100);
+        history = new CircularHistory(100);
 
         chatCommandMap = new LinkedHashMap<>();
-        chatCommandMap.put("help", new HelpCommand("List of available commands", this));
-        chatCommandMap.put("exit", new ExitCommand("Exit from chat", this));
-        chatCommandMap.put("set_topic", new SetTopicCommand("Set topic of this chat", this));
-        chatCommandMap.put("change_login", new ChangeLoginCommand("Change your login", this));
-    }
-
-    CopyOnWriteArrayList<ChatSession> getSessions() {
-        return sessions;
+        chatCommandMap.put("help", new HelpCommand(this));
+        chatCommandMap.put("exit", new ExitCommand(this));
+        chatCommandMap.put("set_topic", new SetTopicCommand(this));
+        chatCommandMap.put("change_login", new ChangeLoginCommand(this));
     }
 
     public void registerSession(ChatSession session) {
         saveAndSendMessage(null, prepareSysMessage(session.getLogin() + " connected"));
 
         sessions.addIfAbsent(session);
+        loginsLock.writeLock().lock();
         logins.add(session.getLogin());
         System.out.println("User connected (" + logins.size() + "): " + session.getLogin());
+        loginsLock.writeLock().unlock();
 
-        for (String message : history.toArray(new String[history.size()])) {
+        for (String message : history.getArray()) {
             session.sendMessage(message);
         }
 
 
-        topicLock.lock();
+        topicLock.readLock().lock();
         session.sendMessage("Welcome to this chat, topic is " +
                 (topic == null || topic.length() == 0
-                ? "clear"
-                :"\"" + topic + "\"") + "\r\n");
-        topicLock.unlock();
+                        ? "clear"
+                        : "\"" + topic + "\"") + "\r\n");
+        topicLock.readLock().unlock();
     }
 
     public void setTopic(ChatSession session, String topic) {
-        topicLock.lock();
+        topicLock.writeLock().lock();
         this.topic = topic;
         saveAndSendMessage(prepareSysMessage(session.getLogin() + " changed topic to \"" + topic + "\""));
-        topicLock.unlock();
+        topicLock.writeLock().unlock();
     }
 
     public void unRegisterSession(ChatSession session) {
-        if (sessions.contains(session)) {
-            sessions.remove(session);
+        if (sessions.remove(session)) {
+            loginsLock.writeLock().lock();
             logins.remove(session.getLogin());
             System.out.println("User disconnected (" + logins.size() + "): " + session.getLogin());
+            loginsLock.writeLock().unlock();
             saveAndSendMessage(prepareSysMessage(session.getLogin() + " disconnected"));
         }
     }
@@ -88,7 +94,7 @@ public abstract class ChatServer {
     }
 
     private void sendMessageToAll(ChatSession session, String message) {
-        getSessions().forEach(sessionForSend -> {
+        sessions.forEach(sessionForSend -> {
             if (session == null || sessionForSend != session) {
                 sessionForSend.sendMessage(message);
             }
@@ -111,26 +117,40 @@ public abstract class ChatServer {
     }
 
     private String prepareMessage(ChatSession session, String message) {
-        return String.format(msgFormat, dateFormat.format(new Date()), session.getLogin(), message);
+        return String.format(msgFormat, LocalDateTime.now().format(dateTimeFormatter), session.getLogin(), message);
     }
 
     public String prepareSysMessage(String message) {
-        return String.format(sysMsgFormat, dateFormat.format(new Date()), message + "\r\n");
-    }
-
-    public boolean loginInUse(String login) {
-        return logins.contains(login);
+        return String.format(sysMsgFormat, LocalDateTime.now().format(dateTimeFormatter), message + "\r\n");
     }
 
     public Map<String, ChatCommand> getChatCommandMap() {
-        return chatCommandMap;
+        return Collections.unmodifiableMap(chatCommandMap);
     }
 
     public boolean acceptableLogin(String login) {
         return login != null && login.matches("^[a-zA-Z0-9_-]{3,15}$");
     }
 
-    public ConcurrentSkipListSet<String> getLogins() {
-        return logins;
+    public boolean containsLogin(String login) {
+        loginsLock.readLock().lock();
+        boolean result = logins.contains(login);
+        loginsLock.readLock().unlock();
+        return result;
+    }
+
+    public void replaceLogin(String oldLogin, String newLogin) {
+        loginsLock.writeLock().lock();
+        logins.remove(oldLogin);
+        logins.add(newLogin);
+        loginsLock.writeLock().unlock();
+    }
+
+    boolean containsSession(ChatSession session) {
+        return sessions.contains(session);
+    }
+
+    String[] getCircularHistory() {
+        return history.getArray();
     }
 }

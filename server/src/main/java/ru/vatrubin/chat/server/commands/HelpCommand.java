@@ -5,8 +5,8 @@ import ru.vatrubin.chat.server.ChatSession;
 
 public class HelpCommand extends ChatCommand {
 
-    public HelpCommand(String description, ChatServer server) {
-        super(description, server);
+    public HelpCommand(ChatServer server) {
+        super("List of available commands",  server);
     }
 
     @Override

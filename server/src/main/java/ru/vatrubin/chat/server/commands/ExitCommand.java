@@ -4,8 +4,8 @@ import ru.vatrubin.chat.server.ChatServer;
 import ru.vatrubin.chat.server.ChatSession;
 
 public class ExitCommand extends ChatCommand {
-    public ExitCommand(String description, ChatServer server) {
-        super(description, server);
+    public ExitCommand(ChatServer server) {
+        super("Exit from chat", server);
     }
 
     @Override

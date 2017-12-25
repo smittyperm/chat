@@ -25,7 +25,7 @@ public class LoginReadCompletionHandler implements CompletionHandler<Integer, Vo
             System.out.println("Closing connection to " + channel);
         } else {
             String login = TcpUtils.bytesBufferToString(bytesRead, inputBuffer).trim();
-            if (server.loginInUse(login)) {
+            if (server.containsLogin(login)) {
                 ByteBuffer outputBuffer =
                         TcpUtils.stringToBytesBuffer("This login is already in use, please choose another one: \r\n");
                 channel.write(outputBuffer, null, new LoginWriteCompletionHandler(server, channel));

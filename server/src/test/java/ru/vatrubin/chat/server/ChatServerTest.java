@@ -6,7 +6,10 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public class ChatServerTest {
 
@@ -26,29 +29,29 @@ public class ChatServerTest {
         spectatorSession.clearHist();
         ChatSession session = new SimpleChatSession("user1");
         server.registerSession(session);
-        assertTrue(server.getLogins().contains("user1"));
-        assertTrue(server.getSessions().contains(session));
+        assertTrue(server.containsLogin("user1"));
+        assertTrue(server.containsSession(session));
         assertNotNull(spectatorSession.getLastMsg());
 
-        assertTrue(server.loginInUse("user1"));
+        assertTrue(server.containsLogin("user1"));
 
         server.receiveMessage(session, "/change_login spt");
-        assertEquals(session.getLogin(), "user1");
+        assertEquals("user1", session.getLogin());
         server.receiveMessage(session, "/change_login a");
-        assertEquals(session.getLogin(), "user1");
+        assertEquals("user1", session.getLogin());
 
         String newUsername = "awesome_user";
         server.receiveMessage(session, "/change_login " + newUsername);
         assertTrue(spectatorSession.getLastMsg().contains(newUsername));
-        assertFalse(server.loginInUse("user1"));
-        assertTrue(server.loginInUse(newUsername));
+        assertFalse(server.containsLogin("user1"));
+        assertTrue(server.containsLogin(newUsername));
 
-        assertFalse(server.getLogins().contains("user1"));
+        assertFalse(server.containsLogin("user1"));
 
         spectatorSession.clearHist();
         server.unRegisterSession(session);
-        assertFalse(server.getLogins().contains(newUsername));
-        assertFalse(server.getSessions().contains(session));
+        assertFalse(server.containsLogin(newUsername));
+        assertFalse(server.containsSession(session));
         assertNotNull(spectatorSession.getLastMsg());
     }
 
@@ -67,14 +70,13 @@ public class ChatServerTest {
         server.registerSession(session);
         String message1 = "msg1";
         session.sendMessage(message1);
-        assertEquals(session.getLastMsg(), message1);
+        assertEquals(message1, session.getLastMsg());
 
         String message2 = "msg2";
         session.clearHist();
         spectatorSession.clearHist();
         server.receiveMessage(session, message2);
-        assertNotNull(session.getLastMsg());
-        assertNotNull(spectatorSession.getLastMsg());
+        assertEquals(spectatorSession.getLastMsg(), session.getLastMsg());
     }
 
     @Test
@@ -121,15 +123,25 @@ public class ChatServerTest {
 
     @Test
     public void histTest() {
-        for (int i = 1; i <= 150; i++) {
+        ChatServer server = new ChatServer() {
+        };
+        int l = 30;
+        int histSize = 100;
+        for (int i = 1; i <= l; i++) {
             server.saveAndSendMessage("msg" + String.valueOf(i));
         }
-        SimpleChatSession session = new SimpleChatSession("user5");
-        server.registerSession(session);
-        assertEquals(session.getHist().size(), 100 + 1);
-        assertEquals(session.getHist().get(session.getHist().size() - 3), "msg150");
-    }
+        assertEquals(l, server.getCircularHistory().length);
+        assertEquals("msg" + String.valueOf(1), server.getCircularHistory()[0]);
+        assertEquals("msg" + String.valueOf(l), server.getCircularHistory()[l - 1]);
 
+        int k = 150;
+        for (int i = l; i <= k; i++) {
+            server.saveAndSendMessage("msg" + String.valueOf(i));
+        }
+        assertEquals(histSize, server.getCircularHistory().length);
+        assertEquals("msg" + String.valueOf(k - histSize + 1), server.getCircularHistory()[0]);
+        assertEquals("msg" + String.valueOf(k), server.getCircularHistory()[histSize - 1]);
+    }
 
     class SimpleChatSession extends ChatSession {
         boolean disconnected;
