@@ -10,15 +10,29 @@ public class LoginWriteCompletionHandler implements CompletionHandler<Integer, V
 
     private AsynchronousSocketChannel channel;
     private TcpServer server;
+    private ByteBuffer buffer;
 
-    LoginWriteCompletionHandler(TcpServer server, AsynchronousSocketChannel channel) {
+    LoginWriteCompletionHandler(TcpServer server, AsynchronousSocketChannel channel, ByteBuffer buffer) {
         this.server = server;
         this.channel = channel;
+        this.buffer = buffer;
     }
 
     public void completed(Integer result, Void attachment) {
-        ByteBuffer inputBuffer = ByteBuffer.allocate(1024);
-        channel.read(inputBuffer, null, new LoginReadCompletionHandler(server, channel, inputBuffer));
+        if (result < 0) {
+            try {
+                channel.close();
+                return;
+            } catch (Exception ignored) {
+                return;
+            }
+        }
+        if (buffer.hasRemaining()) {
+            channel.write(buffer, null, this);
+        } else {
+            ByteBuffer inputBuffer = ByteBuffer.allocate(1024);
+            channel.read(inputBuffer, null, new LoginReadCompletionHandler(server, channel, inputBuffer));
+        }
     }
 
     public void failed(Throwable exc, Void attachment) {

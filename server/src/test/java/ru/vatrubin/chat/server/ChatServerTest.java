@@ -2,36 +2,54 @@ package ru.vatrubin.chat.server;
 
 import org.junit.Before;
 import org.junit.Test;
+import ru.vatrubin.chat.server.exceptions.LoginInUseException;
+import ru.vatrubin.chat.server.exceptions.LoginIsNotAcceptableException;
+import ru.vatrubin.chat.server.tcp.TcpServer;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 public class ChatServerTest {
 
     private ChatServer server;
 
-    private SimpleChatSession spectatorSession = new SimpleChatSession("spt");
+    private SimpleChatSession spectatorSession;
 
     @Before
     public void setUp() throws Exception {
         server = new ChatServer() {
+            @Override
+            public void run() {
+            }
         };
+        spectatorSession = new SimpleChatSession(server, "spt");
         server.registerSession(spectatorSession);
     }
 
     @Test
     public void testRegistration() {
         spectatorSession.clearHist();
-        ChatSession session = new SimpleChatSession("user1");
+        ChatSession session = new SimpleChatSession(server, "user1");
         server.registerSession(session);
         assertTrue(server.containsLogin("user1"));
         assertTrue(server.containsSession(session));
         assertNotNull(spectatorSession.getLastMsg());
+
+        try {
+            server.registerSession(new SimpleChatSession(server, "user1"));
+            fail();
+        } catch (Exception e) {
+            assertTrue(e instanceof LoginInUseException);
+        }
+
+        try {
+            server.registerSession(new SimpleChatSession(server, "a"));
+            fail();
+        } catch (Exception e) {
+            assertTrue(e instanceof LoginIsNotAcceptableException);
+        }
 
         assertTrue(server.containsLogin("user1"));
 
@@ -49,7 +67,7 @@ public class ChatServerTest {
         assertFalse(server.containsLogin("user1"));
 
         spectatorSession.clearHist();
-        server.unRegisterSession(session);
+        session.disconnect();
         assertFalse(server.containsLogin(newUsername));
         assertFalse(server.containsSession(session));
         assertNotNull(spectatorSession.getLastMsg());
@@ -66,7 +84,7 @@ public class ChatServerTest {
 
     @Test
     public void testMsg() {
-        SimpleChatSession session = new SimpleChatSession("user2");
+        SimpleChatSession session = new SimpleChatSession(server, "user2");
         server.registerSession(session);
         String message1 = "msg1";
         session.sendMessage(message1);
@@ -86,13 +104,13 @@ public class ChatServerTest {
 
     @Test
     public void testTopic() {
-        SimpleChatSession session = new SimpleChatSession("user2");
+        SimpleChatSession session = new SimpleChatSession(server, "user3");
         server.registerSession(session);
 
         String topic = "awesome_topic";
         server.receiveMessage(session, "/set_topic " + topic);
 
-        SimpleChatSession session1 = new SimpleChatSession("user2");
+        SimpleChatSession session1 = new SimpleChatSession(server, "user4");
         server.registerSession(session1);
 
         server.receiveMessage(session, "/set_topic ");
@@ -102,7 +120,7 @@ public class ChatServerTest {
 
     @Test
     public void testExit() {
-        SimpleChatSession session = new SimpleChatSession("user3");
+        SimpleChatSession session = new SimpleChatSession(server, "user5");
         server.registerSession(session);
         server.receiveMessage(session, "/exit");
 
@@ -114,46 +132,25 @@ public class ChatServerTest {
 
     @Test
     public void testHelp() {
-        SimpleChatSession session = new SimpleChatSession("user4");
+        SimpleChatSession session = new SimpleChatSession(server, "user6");
         server.registerSession(session);
         server.receiveMessage(session, "/help");
 
         assertTrue(session.getLastMsg().contains("List of available commands"));
     }
 
-    @Test
-    public void histTest() {
-        ChatServer server = new ChatServer() {
-        };
-        int l = 30;
-        int histSize = 100;
-        for (int i = 1; i <= l; i++) {
-            server.saveAndSendMessage("msg" + String.valueOf(i));
-        }
-        assertEquals(l, server.getCircularHistory().length);
-        assertEquals("msg" + String.valueOf(1), server.getCircularHistory()[0]);
-        assertEquals("msg" + String.valueOf(l), server.getCircularHistory()[l - 1]);
-
-        int k = 150;
-        for (int i = l; i <= k; i++) {
-            server.saveAndSendMessage("msg" + String.valueOf(i));
-        }
-        assertEquals(histSize, server.getCircularHistory().length);
-        assertEquals("msg" + String.valueOf(k - histSize + 1), server.getCircularHistory()[0]);
-        assertEquals("msg" + String.valueOf(k), server.getCircularHistory()[histSize - 1]);
-    }
-
     class SimpleChatSession extends ChatSession {
         boolean disconnected;
         List<String> hist = new ArrayList<>();
 
-        SimpleChatSession(String login) {
-            super(login);
+        public SimpleChatSession(ChatServer server, String login) {
+            super(server, login);
         }
 
         @Override
         public void disconnect() {
             disconnected = true;
+            super.disconnect();
         }
 
         @Override

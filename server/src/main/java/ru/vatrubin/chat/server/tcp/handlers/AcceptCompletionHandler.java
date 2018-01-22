@@ -23,8 +23,9 @@ public class AcceptCompletionHandler implements CompletionHandler<AsynchronousSo
 
         listener.accept(null, this);
 
-        ByteBuffer outputBuffer = TcpUtils.stringToBytesBuffer("This is chat, please choose login: \r\n");
-        channel.write(outputBuffer, null, new LoginWriteCompletionHandler(server, channel));
+        ByteBuffer outputBuffer = TcpUtils.stringToBytesBuffer("This is chat, please choose login: " +
+                TcpUtils.getEndOfLine());
+        channel.write(outputBuffer, null, new LoginWriteCompletionHandler(server, channel, outputBuffer));
     }
 
     public void failed(Throwable arg0, Void arg1) {

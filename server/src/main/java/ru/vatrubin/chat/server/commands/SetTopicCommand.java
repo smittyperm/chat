@@ -13,7 +13,7 @@ public class SetTopicCommand extends ChatCommand {
         if (commandParams != null && commandParams.length() > 0) {
             getServer().setTopic(session, commandParams);
         } else {
-            session.sendMessage("Can't set empty topic\r\n");
+            session.sendMessage("Can't set empty topic");
         }
     }
 }

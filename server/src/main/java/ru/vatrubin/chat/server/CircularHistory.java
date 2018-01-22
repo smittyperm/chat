@@ -16,34 +16,48 @@ class CircularHistory {
         lock = new ReentrantReadWriteLock();
     }
 
-    void add(String message) {
+    public void add(String message) {
         lock.writeLock().lock();
-        array[position] = message;
-        haveCircle = haveCircle || (position + 1) >= circleSize;
-        position = (position + 1) % circleSize;
-        lock.writeLock().unlock();
+        try {
+            array[position] = message;
+            haveCircle = haveCircle || (position + 1) >= circleSize;
+            position = (position + 1) % circleSize;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
-    String[] getArray() {
+    public String[] getArray() {
         String[] result = new String[haveCircle ? circleSize : position];
         lock.readLock().lock();
-        for (int i = 0; i < result.length; i++) {
-            if (i <= position) {
-                result[i] = array[haveCircle ? circleSize - position - 1 + i : i];
-            } else {
-                result[i] = array[i];
+        try {
+            for (int i = 0; i < result.length; i++) {
+                if (i <= position) {
+                    result[i] = array[haveCircle ? circleSize - position - 1 + i : i];
+                } else {
+                    result[i] = array[i];
+                }
             }
-        }
-        int j = 0;
-        if (haveCircle) {
-            for (int i = position; i < circleSize; i++) {
+            int j = 0;
+            if (haveCircle) {
+                for (int i = position; i < circleSize; i++) {
+                    result[j++] = array[i];
+                }
+            }
+            for (int i = 0; i < position; i++) {
                 result[j++] = array[i];
             }
+        } finally {
+            lock.readLock().unlock();
         }
-        for (int i = 0; i < position; i++) {
-            result[j++] = array[i];
-        }
-        lock.readLock().unlock();
         return result;
+    }
+
+    public void clear() {
+        position = 0;
+        haveCircle = false;
+        for (int i = 0; i < array.length; i++) {
+            array[i] = null;
+        }
     }
 }

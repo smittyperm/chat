@@ -1,14 +1,16 @@
 package ru.vatrubin.chat.server;
 
 public abstract class ChatSession {
+    protected ChatServer server;
     private String login;
+
+    public ChatSession(ChatServer server, String login) {
+        this.server = server;
+        this.login = login;
+    }
 
     public String getLogin() {
         return login;
-    }
-
-    public ChatSession(String login) {
-        this.login = login;
     }
 
     public void setLogin(String login) {
@@ -17,5 +19,7 @@ public abstract class ChatSession {
 
     public abstract void sendMessage(String message);
 
-    public abstract void disconnect();
+    public void disconnect() {
+        server.unRegisterSession(this);
+    }
 }

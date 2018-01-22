@@ -4,6 +4,7 @@ import ru.vatrubin.chat.server.ChatSession;
 import ru.vatrubin.chat.server.tcp.handlers.WriteCompletionHandler;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.locks.Lock;
@@ -11,15 +12,13 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class TcpChatSession extends ChatSession {
     private AsynchronousSocketChannel channel;
-    private TcpServer server;
     private LinkedBlockingQueue<String> msgQueue;
     private Lock writeLock;
     private boolean isPending;
 
     public TcpChatSession(TcpServer server, AsynchronousSocketChannel channel, String userName) {
-        super(userName);
+        super(server, userName);
         this.channel = channel;
-        this.server = server;
         msgQueue = new LinkedBlockingQueue<>();
         writeLock = new ReentrantLock();
     }
@@ -30,29 +29,36 @@ public class TcpChatSession extends ChatSession {
 
     @Override
     public void sendMessage(String message) {
+        message = message + TcpUtils.getEndOfLine();
         writeLock.lock();
-        if (msgQueue.isEmpty() && !isPending) {
-            writeMsgToChannel(message);
-        } else {
-            msgQueue.add(message);
+        try {
+            if (msgQueue.isEmpty() && !isPending) {
+                writeMsgToChannel(message);
+            } else {
+                msgQueue.add(message);
+            }
+        } finally {
+            writeLock.unlock();
         }
-        writeLock.unlock();
     }
 
     public void checkMsgQueue() {
         writeLock.lock();
-        if (!msgQueue.isEmpty()) {
-            writeMsgToChannel(msgQueue.poll());
-        } else {
-            isPending = false;
+        try {
+            if (!msgQueue.isEmpty()) {
+                writeMsgToChannel(msgQueue.poll());
+            } else {
+                isPending = false;
+            }
+        } finally {
+            writeLock.unlock();
         }
-        writeLock.unlock();
     }
 
     private void writeMsgToChannel(String message) {
         isPending = true;
-        channel.write(TcpUtils.stringToBytesBuffer(message),
-                this, new WriteCompletionHandler(server));
+        ByteBuffer buffer = TcpUtils.stringToBytesBuffer(message);
+        channel.write(buffer,this, new WriteCompletionHandler(server, buffer));
     }
 
     @Override
@@ -61,7 +67,7 @@ public class TcpChatSession extends ChatSession {
             channel.close();
         } catch (IOException ignored){
         } finally {
-            server.unRegisterSession(this);
+            super.disconnect();
         }
     }
 }

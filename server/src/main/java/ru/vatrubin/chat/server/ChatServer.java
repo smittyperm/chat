@@ -5,6 +5,9 @@ import ru.vatrubin.chat.server.commands.ChatCommand;
 import ru.vatrubin.chat.server.commands.ExitCommand;
 import ru.vatrubin.chat.server.commands.HelpCommand;
 import ru.vatrubin.chat.server.commands.SetTopicCommand;
+import ru.vatrubin.chat.server.exceptions.LoginException;
+import ru.vatrubin.chat.server.exceptions.LoginInUseException;
+import ru.vatrubin.chat.server.exceptions.LoginIsNotAcceptableException;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -26,6 +29,7 @@ public abstract class ChatServer {
     private final String sysMsgFormat;
     private final CircularHistory history;
     private final Map<String, ChatCommand> chatCommandMap;
+    private boolean stopped;
 
     private String topic = "";
     private ReadWriteLock topicLock = new ReentrantReadWriteLock();
@@ -37,25 +41,34 @@ public abstract class ChatServer {
         msgFormat = "%s %s: %s";
         sysMsgFormat = "%s: %s";
         history = new CircularHistory(100);
-
         chatCommandMap = new LinkedHashMap<>();
-        chatCommandMap.put("help", new HelpCommand(this));
-        chatCommandMap.put("exit", new ExitCommand(this));
-        chatCommandMap.put("set_topic", new SetTopicCommand(this));
-        chatCommandMap.put("change_login", new ChangeLoginCommand(this));
+
+        addChatCommand("help", new HelpCommand(this));
+        addChatCommand("exit", new ExitCommand(this));
+        addChatCommand("set_topic", new SetTopicCommand(this));
+        addChatCommand("change_login", new ChangeLoginCommand(this));
     }
 
     public void registerSession(ChatSession session) {
-        saveAndSendMessage(null, prepareSysMessage(session.getLogin() + " connected"));
-
-        sessions.addIfAbsent(session);
+        if (!acceptableLogin(session.getLogin())) {
+            throw new LoginIsNotAcceptableException(session.getLogin());
+        }
         loginsLock.writeLock().lock();
-        logins.add(session.getLogin());
-        System.out.println("User connected (" + logins.size() + "): " + session.getLogin());
-        loginsLock.writeLock().unlock();
+        try {
+            if (logins.contains(session.getLogin())) {
+                throw new LoginInUseException(session.getLogin());
+            }
+            saveAndSendMessage(null, prepareSysMessage(session.getLogin() + " connected"));
 
-        for (String message : history.getArray()) {
-            session.sendMessage(message);
+            sessions.add(session);
+            logins.add(session.getLogin());
+            System.out.println("User connected (" + logins.size() + "): " + session.getLogin());
+
+            for (String message : history.getArray()) {
+                session.sendMessage(message);
+            }
+        } finally {
+            loginsLock.writeLock().unlock();
         }
 
 
@@ -63,7 +76,7 @@ public abstract class ChatServer {
         session.sendMessage("Welcome to this chat, topic is " +
                 (topic == null || topic.length() == 0
                         ? "clear"
-                        : "\"" + topic + "\"") + "\r\n");
+                        : "\"" + topic + "\""));
         topicLock.readLock().unlock();
     }
 
@@ -109,7 +122,7 @@ public abstract class ChatServer {
             if (chatCommand != null) {
                 chatCommand.handleCommand(session, message.substring(commandName.length()).trim());
             } else {
-                session.sendMessage("Unknown command: " + commandName + "\r\n");
+                session.sendMessage("Unknown command: " + commandName);
             }
         } else {
             saveAndSendMessage(prepareMessage(session, message));
@@ -121,29 +134,40 @@ public abstract class ChatServer {
     }
 
     public String prepareSysMessage(String message) {
-        return String.format(sysMsgFormat, LocalDateTime.now().format(dateTimeFormatter), message + "\r\n");
+        return String.format(sysMsgFormat, LocalDateTime.now().format(dateTimeFormatter), message);
     }
 
     public Map<String, ChatCommand> getChatCommandMap() {
         return Collections.unmodifiableMap(chatCommandMap);
     }
 
-    public boolean acceptableLogin(String login) {
+    boolean acceptableLogin(String login) {
         return login != null && login.matches("^[a-zA-Z0-9_-]{3,15}$");
     }
 
-    public boolean containsLogin(String login) {
+    public void changeLogin(ChatSession session, String newLogin) {
+        if (!acceptableLogin(newLogin)) {
+            throw new LoginIsNotAcceptableException(newLogin);
+        }
+        loginsLock.writeLock().lock();
+        try {
+
+            if (logins.contains(newLogin)) {
+                throw new LoginInUseException(session.getLogin());
+            }
+            logins.remove(session.getLogin());
+            logins.add(newLogin);
+            session.setLogin(newLogin);
+        } finally {
+            loginsLock.writeLock().unlock();
+        }
+    }
+
+    boolean containsLogin(String login) {
         loginsLock.readLock().lock();
         boolean result = logins.contains(login);
         loginsLock.readLock().unlock();
         return result;
-    }
-
-    public void replaceLogin(String oldLogin, String newLogin) {
-        loginsLock.writeLock().lock();
-        logins.remove(oldLogin);
-        logins.add(newLogin);
-        loginsLock.writeLock().unlock();
     }
 
     boolean containsSession(ChatSession session) {
@@ -152,5 +176,19 @@ public abstract class ChatServer {
 
     String[] getCircularHistory() {
         return history.getArray();
+    }
+
+    public void addChatCommand(String name, ChatCommand command) {
+        chatCommandMap.put(name, command);
+    }
+
+    public abstract void run();
+
+    public boolean isStopped() {
+        return stopped;
+    }
+
+    protected void stopServer() {
+        stopped = true;
     }
 }
