@@ -20,6 +20,7 @@ public class WriteCompletionHandler implements CompletionHandler<Integer, TcpCha
         if (result < 0) {
             try {
                 session.disconnect();
+                return;
             } catch (Exception ignored) {
                 return;
             }

@@ -73,26 +73,35 @@ public abstract class ChatServer {
 
 
         topicLock.readLock().lock();
-        session.sendMessage("Welcome to this chat, topic is " +
-                (topic == null || topic.length() == 0
-                        ? "clear"
-                        : "\"" + topic + "\""));
-        topicLock.readLock().unlock();
+        try {
+            session.sendMessage("Welcome to this chat, topic is " +
+                    (topic == null || topic.length() == 0
+                            ? "clear"
+                            : "\"" + topic + "\""));
+        } finally {
+            topicLock.readLock().unlock();
+        }
     }
 
     public void setTopic(ChatSession session, String topic) {
         topicLock.writeLock().lock();
-        this.topic = topic;
-        saveAndSendMessage(prepareSysMessage(session.getLogin() + " changed topic to \"" + topic + "\""));
-        topicLock.writeLock().unlock();
+        try {
+            this.topic = topic;
+            saveAndSendMessage(prepareSysMessage(session.getLogin() + " changed topic to \"" + topic + "\""));
+        } finally {
+            topicLock.writeLock().unlock();
+        }
     }
 
     public void unRegisterSession(ChatSession session) {
         if (sessions.remove(session)) {
             loginsLock.writeLock().lock();
-            logins.remove(session.getLogin());
-            System.out.println("User disconnected (" + logins.size() + "): " + session.getLogin());
-            loginsLock.writeLock().unlock();
+            try {
+                logins.remove(session.getLogin());
+                System.out.println("User disconnected (" + logins.size() + "): " + session.getLogin());
+            } finally {
+                loginsLock.writeLock().unlock();
+            }
             saveAndSendMessage(prepareSysMessage(session.getLogin() + " disconnected"));
         }
     }
@@ -151,7 +160,6 @@ public abstract class ChatServer {
         }
         loginsLock.writeLock().lock();
         try {
-
             if (logins.contains(newLogin)) {
                 throw new LoginInUseException(session.getLogin());
             }
